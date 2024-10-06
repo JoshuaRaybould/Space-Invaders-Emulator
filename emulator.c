@@ -4,6 +4,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// This defines at what index opcodes begin on each line and how many are on each line in the given file (may need altering)
+// Opcodes have length 2 since they consist of two characters (not dependant on file used)
+#define OPCODE_START_INDEX 9
+#define OPCODES_PER_LINE 16
+#define OPCODE_LEN 2
+#define TOTAL_LEN_OPCODES (OPCODES_PER_LINE * OPCODE_LEN)
+// The way this is handled could do with being changed to become dynamic, but this will work for now.
+#define TEXT_BUFFER_SIZE 65536
+
+#define MEMORY_SIZE 65536
+
+
 typedef struct ConditionCodes {
     uint8_t    z:1;
     uint8_t    s:1;
@@ -28,11 +40,87 @@ typedef struct State8080 {
     uint8_t     int_enable;
 } State8080;
 
-char fullText[65536];
-int codeNum = 0;
+// Function prototypes
+// Helper functions
+int Parity(uint8_t answer);
+unsigned char HexToUnsigned(char* curByte);
+unsigned char NextByte(char curLine[], int pos);
+void UnimplenetedInstruction(State8080* state);
+
+// Main emulation functions
+void Emulate8080p(State8080* state);
+void Disassemble8080p(uint8_t *codebuffer, int pc);
+
+
+char fullText[TEXT_BUFFER_SIZE];
 int counter = 0;
 
-void Disassemble8080p(uint8_t *codebuffer, int pc);
+
+int main()
+{
+    char line[255];
+    FILE * fpointer = fopen("invaders_hex.txt", "r");
+    fullText[0] = '\0';
+
+    int count;
+    while (fgets(line, 255, fpointer)) {
+        int pos = OPCODE_START_INDEX;
+        char relevantLine[(TOTAL_LEN_OPCODES) + 1];
+        count = 0;
+        while (count < (TOTAL_LEN_OPCODES)) {
+            if (line[pos] != ' ') {
+                relevantLine[count++] = line[pos];
+            }
+            pos++;
+            // Problem: the final line in the file of opcodes may not have a full line of opcodes so the behaviour is likely incorrect.
+            // This is a temporary solution,  that should handle it
+            if (pos > TOTAL_LEN_OPCODES * 2) {
+                break;
+            }
+        }
+        relevantLine[count] = '\0';
+        //printf("%s\n", relevantLine);
+        strcat(fullText, relevantLine);
+    }
+    printf("%s\n", fullText);
+
+    State8080 state;
+    state.a = 0;
+    state.b = 0;
+    state.c = 0;
+    state.d = 0;
+    state.e = 0;
+    state.h = 0;
+    state.l = 0;
+    state.sp = 0;
+    state.pc = 0;
+    state.memory = (uint8_t *)malloc(MEMORY_SIZE * sizeof(uint8_t));
+    state.cc.z = 0;
+    state.cc.s = 0;
+    state.cc.p = 0;
+    state.cc.cy = 0;
+    state.cc.ac = 0;
+    state.cc.pad = 0;
+    state.int_enable = 0;
+
+    int pos = 0;
+    int curMemPos = 0;
+    while (fullText[pos] != '\0') {
+        state.memory[curMemPos++] = NextByte(fullText, pos);
+        pos += 2;
+    }
+
+    while(true) {
+        // printf("hi\n");
+        Emulate8080p(&state);
+    }
+
+
+
+    free(state.memory);
+    return 0;
+}
+
 
 int Parity(uint8_t answer)
 {
@@ -2000,67 +2088,6 @@ void Emulate8080p(State8080* state)
     }
 }
 
-int main()
-{
-    char line[255];
-    FILE * fpointer = fopen("invaders_hex.txt", "r");
-    fullText[0] = '\0';
-
-    int count;
-    while (fgets(line, 255, fpointer)) {
-        int pos = 0;
-        char relevantLine[33];
-        count = 0;
-        //printf("%.39s\n", line + 10);
-        for (int i = 9; i <= 59; i++) {
-            //printf("%c", line[i]);
-            if (line[i] != ' ') {
-                relevantLine[count++] = line[i];
-            }
-        }
-        relevantLine[count] = '\0';
-        //printf("%s\n", relevantLine);
-        strcat(fullText, relevantLine);
-    }
-    printf("%s\n", fullText);
-
-    State8080 state;
-    state.a = 0;
-    state.b = 0;
-    state.c = 0;
-    state.d = 0;
-    state.e = 0;
-    state.h = 0;
-    state.l = 0;
-    state.sp = 0;
-    state.pc = 0;
-    state.memory = (uint8_t *)malloc(65536 * sizeof(uint8_t));
-    state.cc.z = 0;
-    state.cc.s = 0;
-    state.cc.p = 0;
-    state.cc.cy = 0;
-    state.cc.ac = 0;
-    state.cc.pad = 0;
-    state.int_enable = 0;
-
-    int pos = 0;
-    int curMemPos = 0;
-    while (fullText[pos] != '\0') {
-        state.memory[curMemPos++] = NextByte(fullText, pos);
-        pos += 2;
-    }
-
-    while(true) {
-        // printf("hi\n");
-        Emulate8080p(&state);
-    }
-
-
-
-    free(state.memory);
-    return 0;
-}
-
 void Disassemble8080p(uint8_t *codebuffer, int pc) {
     unsigned char *code = &codebuffer[pc];
     printf("\t%04x \n", pc);
@@ -2082,7 +2109,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x06:
             printf("MVI  B,#$%02x\n", code[1]);
-            codeNum++;
             break;
         case 0x07: printf("RLC\n");
         break;
@@ -2100,7 +2126,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x0e:
             printf("MVI  C,#$%02x\n", code[1]);
-            codeNum++;
             break;
         case 0x0f: printf("RRC\n");
         break;
@@ -2119,7 +2144,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x16:
             printf("MVI  D,#$%02x\n", code[1]);
-            codeNum++;
             break;
         case 0x17: printf("RAL\n");
         break;
@@ -2137,7 +2161,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x1e:
             printf("MVI  E,#$%02x\n", code[1]);
-            codeNum++;
             break;
         case 0x1f: printf("RAR\n");
         break;
@@ -2166,7 +2189,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x2a:
             printf("LHLD #$%02x%02x\n", code[2], code[1]);
-            codeNum += 2;
             break;
         case 0x2b: printf("DCX  H\n");
         break;
@@ -2176,7 +2198,6 @@ void Disassemble8080p(uint8_t *codebuffer, int pc) {
         break;
         case 0x2e:
             printf("MVI  L,#$%02x\n", code[1]);
-            codeNum++;
             break;
         case 0x2f: printf("CMA\n");
         break;
