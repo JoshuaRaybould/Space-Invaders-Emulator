@@ -4,9 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Text file containing the opcodes
+#define TEXT_FILE "invaders_hex.txt" // "fullCPUtest.txt"
 // This defines at what index opcodes begin on each line and how many are on each line in the given file (may need altering)
 // Opcodes have length 2 since they consist of two characters (not dependant on file used)
-#define OPCODE_START_INDEX 9
+#define OPCODE_START_INDEX 8
 #define OPCODES_PER_LINE 16
 #define OPCODE_LEN 2
 #define TOTAL_LEN_OPCODES (OPCODES_PER_LINE * OPCODE_LEN)
@@ -59,7 +61,7 @@ int counter = 0;
 int main()
 {
     char line[255];
-    FILE * fpointer = fopen("invaders_hex.txt", "r");
+    FILE * fpointer = fopen(TEXT_FILE, "r");
     fullText[0] = '\0';
 
     int count;
@@ -104,17 +106,25 @@ int main()
     state.int_enable = 0;
 
     int pos = 0;
-    int curMemPos = 0;
+    int curMemPos = 0 //0x100;
     while (fullText[pos] != '\0') {
         state.memory[curMemPos++] = NextByte(fullText, pos);
         pos += 2;
     }
 
+    // *****************************
+    state.sp = 0x07AD;
+    state.pc = 0x100;
+    state.memory[368] = 0x7;
+    state.memory[0x59c] = 0xc3; // JMP opcode
+    state.memory[0x59d] = 0xc2; // Low byte of target address
+    state.memory[0x59e] = 0x05; // High byte of target address
+    // *****************************
+
     while(true) {
         // printf("hi\n");
         Emulate8080p(&state);
     }
-
 
 
     free(state.memory);
@@ -1589,12 +1599,35 @@ void Emulate8080p(State8080* state)
         }
         case 0xcd:
         {
-            uint16_t ret = state->pc+3;
-            state->memory[state->sp - 1] = (ret >> 8) & 0xff;
-            state->memory[state->sp - 2] = (ret & 0xff);
-            state->sp = state->sp - 2;
-            state->pc = (opcode[2] << 8) | opcode[1];
-            state->pc--;
+            // Altered to handle testing
+            if (5 ==  ((opcode[2] << 8) | opcode[1]))
+            {
+                if (state->c == 9)
+                {
+                    uint16_t offset = (state->d<<8) | (state->e);
+                    char *str = &state->memory[offset+3];  //skip the prefix bytes
+                    while (*str != '$')
+                        printf("%c", *str++);
+                    printf("\n");
+                }
+                else if (state->c == 2)
+                {
+                    //saw this in the inspected code, never saw it called
+                    printf ("print char routine called\n");
+                }
+            }
+            else if (0 ==  ((opcode[2] << 8) | opcode[1]))
+            {
+                exit(0);
+            }
+            else {
+                uint16_t ret = state->pc+3;
+                state->memory[state->sp - 1] = (ret >> 8) & 0xff;
+                state->memory[state->sp - 2] = (ret & 0xff);
+                state->sp = state->sp - 2;
+                state->pc = (opcode[2] << 8) | opcode[1];
+                state->pc--;
+            }
             break;
         }
         case 0xce:
@@ -2024,7 +2057,9 @@ void Emulate8080p(State8080* state)
                 state->pc--;
             }
             else
+            {
                 state->pc += 2;
+            }
             break;
         case 0xfb:
             state->int_enable = 1;
